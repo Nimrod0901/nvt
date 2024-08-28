@@ -1,10 +1,9 @@
 #pragma once
 
-#include <stdexcept>
 #include <tuple>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
+#include <iostream>
 #include <vector>
 
 namespace nvt {
@@ -13,7 +12,7 @@ template <typename T>
 class Shape {
 public:
     int Area() const {
-        return static_cast<Shape&>(*this)->AreaImpl();
+        return static_cast<const T&>(*this).AreaImpl();
     }
 };
 
@@ -77,16 +76,15 @@ struct IndexOf<T, U, Ts...> : std::integral_constant<std::size_t, index_of_v<T, 
 template <typename T>
 struct IndexOf<T> : std::integral_constant<std::size_t, 0> {};
 
-static_assert(index_of_v<int, int, double> == 0);
-static_assert(index_of_v<double, int, double> == 1);
-static_assert(index_of_v<float, int, double> == 2); // equal to the type list length
+static_assert(index_of_v<int, int, double> == 0, "");
+static_assert(index_of_v<double, int, double> == 1, "");
+static_assert(index_of_v<float, int, double> == 2, ""); // equal to the type list length
 
 } // namespace detail
 
 
-// Sequence container
 template <typename... ShapeTs>
-class ShapeManagerV {
+class ShapeManager {
 public:
     struct Index {
         std::size_t type_index;
@@ -94,12 +92,40 @@ public:
     };
 
     template <typename Shape>
-    Index Add();
+    // requires requires { detail::has_type_v<Shape, ShapeTs...>; }
+    Index Add(Shape&& shape);
 
-    void Dispatch(Index);
+    void Dispatch(const Index&);
+
     void ForEach();
 private:
     std::tuple<std::vector<ShapeTs>...> shapes;
 };
+//
+template <typename... ShapeTs>
+template <typename Shape>
+// requires requires { detail::has_type_v<Shape, ShapeTs...>; }
+typename ShapeManager<ShapeTs...>::Index ShapeManager<ShapeTs...>::Add(Shape&& shape) {
+    Index index;
+    constexpr std::size_t type_index = detail::index_of_v<std::remove_cv_t<Shape>, ShapeTs...>;
+    index.type_index = type_index;
+    index.container_index = std::get<type_index>(shapes).size();
+    std::get<type_index>(shapes).push_back(shape);
+    return index;
+}
+
+template <typename... ShapeTs>
+void ShapeManager<ShapeTs...>::Dispatch(const Index& index) {
+    detail::invoke_at(shapes, index.type_index, [container_index=index.container_index](auto& sub_shapes) {
+        std::cout << sub_shapes.at(container_index).Area() << "\n";
+    });
+}
+
+template <typename... ShapeTs>
+void ShapeManager<ShapeTs...>::ForEach() {
+    std::apply([](auto&&... sub_shapes) {
+        ((std::for_each(sub_shapes.begin(), sub_shapes.end(), [](const auto& shape){ std::cout << shape.Area() << "\n";})), ...);
+    }, shapes);
+}
 
 } // namespace nvt
